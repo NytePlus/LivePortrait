@@ -20,10 +20,11 @@ from .utils.cropper import Cropper
 from .utils.camera import get_rotation_matrix
 from .utils.video import images2video, concat_frames, get_fps, add_audio_to_video, has_audio_stream
 from .utils.crop import prepare_paste_back, paste_back
-from .utils.io import load_image_rgb, load_video, resize_to_limit, dump, load
-from .utils.helper import mkdir, basename, dct2device, is_video, is_template, remove_suffix, is_image, is_square_video, calc_motion_multiplier
+from .utils.io import load_image_rgb, load_video, load_triplane, resize_to_limit, dump, load
+from .utils.helper import mkdir, basename, dct2device, is_video, is_template, remove_suffix, is_image, is_square_video, is_triplane, calc_motion_multiplier
 from .utils.filter import smooth
 from .utils.rprint import rlog as log
+from .utils.visualize_keypoint import visualize_kp
 # from .utils.viz import viz_lmk
 from .live_portrait_wrapper import LivePortraitWrapper
 
@@ -82,6 +83,7 @@ class LivePortraitPipeline(object):
 
         ######## load source input ########
         flag_is_source_video = False
+        flag_is_source_triplane = False
         source_fps = None
         if is_image(args.source):
             flag_is_source_video = False
@@ -95,6 +97,12 @@ class LivePortraitPipeline(object):
             source_rgb_lst = [resize_to_limit(img, inf_cfg.source_max_dim, inf_cfg.source_division) for img in source_rgb_lst]
             source_fps = int(get_fps(args.source))
             log(f"Load source video from {args.source}, FPS is {source_fps}")
+        elif is_triplane(args.source): # Nyte's modify: if is triplane
+            flag_is_source_triplane = True
+            source_triplane = load_triplane(args.source)
+            img_rgb = load_image_rgb(args.render)
+            img_rgb = resize_to_limit(img_rgb, inf_cfg.source_max_dim, inf_cfg.source_division)
+            print("Loading triplane from {}".format(args.source))
         else:  # source input is an unknown format
             raise Exception(f"Unknown source format: {args.source}")
 
@@ -238,7 +246,7 @@ class LivePortraitPipeline(object):
                         x_d_r_lst = [driving_template_dct['motion'][0][key_r]]
                         x_d_r_lst_smooth = [torch.tensor(x_d_r[0], dtype=torch.float32, device=device) for x_d_r in x_d_r_lst]*n_frames
 
-        else:  # if the input is a source image, process it only once
+        elif not flag_is_source_triplane:  # if the input is a source image, process it only once
             if inf_cfg.flag_do_crop:
                 crop_info = self.cropper.crop_source_image(source_rgb_lst[0], crop_cfg)
                 if crop_info is None:
@@ -250,9 +258,12 @@ class LivePortraitPipeline(object):
                 img_crop_256x256 = cv2.resize(source_rgb_lst[0], (256, 256))  # force to resize to 256x256
             I_s = self.live_portrait_wrapper.prepare_source(img_crop_256x256)
             x_s_info = self.live_portrait_wrapper.get_kp_info(I_s)
+            visual_kps = [x_s_info["kp"]]
+
             x_c_s = x_s_info['kp']
             R_s = get_rotation_matrix(x_s_info['pitch'], x_s_info['yaw'], x_s_info['roll'])
             f_s = self.live_portrait_wrapper.extract_feature_3d(I_s)
+            print(f'f_s: {f_s.shape} I_s: {I_s.shape}')
             x_s = self.live_portrait_wrapper.transform_keypoint(x_s_info)
 
             # let lip-open scalar to be 0 at first
@@ -264,6 +275,24 @@ class LivePortraitPipeline(object):
 
             if inf_cfg.flag_pasteback and inf_cfg.flag_do_crop and inf_cfg.flag_stitching:
                 mask_ori_float = prepare_paste_back(inf_cfg.mask_crop, crop_info['M_c2o'], dsize=(source_rgb_lst[0].shape[1], source_rgb_lst[0].shape[0]))
+        else: # Nyte's modify: if is triplane
+            if inf_cfg.flag_do_crop:
+                crop_info = self.cropper.crop_source_image(source_rgb_lst[0], crop_cfg)
+                if crop_info is None:
+                    raise Exception("No face detected in the source image!")
+                source_lmk = crop_info['lmk_crop']
+                img_crop_256x256 = crop_info['img_crop_256x256']
+            else:
+                source_lmk = self.cropper.calc_lmk_from_cropped_image(source_rgb_lst[0])
+                img_crop_256x256 = cv2.resize(source_rgb_lst[0], (256, 256))  # force to resize to 256x256
+            I_s = self.live_portrait_wrapper.prepare_source(img_crop_256x256)
+            x_s_info = self.live_portrait_wrapper.get_kp_info(I_s)
+            visual_kps = [x_s_info["kp"]]
+
+            x_c_s = x_s_info['kp']
+            R_s = get_rotation_matrix(x_s_info['pitch'], x_s_info['yaw'], x_s_info['roll'])
+            f_s = self.live_portrait_wrapper.extract_feature_3d(I_s)
+            x_s = self.live_portrait_wrapper.transform_keypoint(x_s_info)
 
         ######## animate ########
         if flag_is_driving_video or (flag_is_source_video and not flag_is_driving_video):
@@ -320,6 +349,7 @@ class LivePortraitPipeline(object):
             if inf_cfg.flag_relative_motion:
                 if inf_cfg.animation_region == "all" or inf_cfg.animation_region == "pose":
                     R_new = x_d_r_lst_smooth[i] if flag_is_source_video else (R_d_i @ R_d_0.permute(0, 2, 1)) @ R_s
+                # this case
                 else:
                     R_new = R_s
                 if inf_cfg.animation_region == "all" or inf_cfg.animation_region == "exp":
@@ -359,6 +389,7 @@ class LivePortraitPipeline(object):
                     t_new = x_s_info['t'] if flag_is_source_video else x_s_info['t'] + (x_d_i_info['t'] - x_d_0_info['t'])
                 else:
                     t_new = x_s_info['t']
+            # this case
             else:
                 if inf_cfg.animation_region == "all" or inf_cfg.animation_region == "pose":
                     R_new = x_d_r_lst_smooth[i] if flag_is_source_video else R_d_i
@@ -385,6 +416,7 @@ class LivePortraitPipeline(object):
 
             t_new[..., 2].fill_(0)  # zero tz
             x_d_i_new = scale_new * (x_c_s @ R_new + delta_new) + t_new
+            # visual_kps.append(x_d_i_info['kp'])
 
             if inf_cfg.flag_relative_motion and inf_cfg.driving_option == "expression-friendly" and not flag_is_source_video and flag_is_driving_video:
                 if i == 0:
@@ -395,6 +427,7 @@ class LivePortraitPipeline(object):
                 x_d_i_new = x_d_diff + x_s
 
             # Algorithm 1:
+            # this case
             if not inf_cfg.flag_stitching and not inf_cfg.flag_eye_retargeting and not inf_cfg.flag_lip_retargeting:
                 # without stitching or retargeting
                 if flag_normalize_lip and lip_delta_before_animation is not None:
@@ -449,6 +482,7 @@ class LivePortraitPipeline(object):
                     I_p_pstbk = paste_back(I_p_i, crop_info['M_c2o'], source_rgb_lst[0], mask_ori_float)
                 I_p_pstbk_lst.append(I_p_pstbk)
 
+        # visualize_kp(visual_kps, log)
         mkdir(args.output_dir)
         wfp_concat = None
         ######### build the final concatenation result #########
@@ -503,6 +537,13 @@ class LivePortraitPipeline(object):
                 log(f'Animated template: {wfp_template}, you can specify `-d` argument with this template path next time to avoid cropping video, motion making and protecting privacy.', style='bold green')
             log(f'Animated video: {wfp}')
             log(f'Animated video with concat: {wfp_concat}')
+        elif args.flag_process_batch:
+            wfp = osp.join(args.output_dir, f'{basename(args.source)}.png')
+            if I_p_pstbk_lst is not None and len(I_p_pstbk_lst) > 0:
+                cv2.imwrite(wfp, I_p_pstbk_lst[0][..., ::-1])
+            else:
+                cv2.imwrite(wfp, frames_concatenated[0][..., ::-1])
+            log(f'Animated image: {wfp}')
         else:
             wfp_concat = osp.join(args.output_dir, f'{basename(args.source)}--{basename(args.driving)}_concat.jpg')
             cv2.imwrite(wfp_concat, frames_concatenated[0][..., ::-1])

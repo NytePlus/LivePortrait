@@ -29,6 +29,15 @@ def load_video(video_info, n_frames=-1):
     return ret
 
 
+def load_triplane(triplane_path: str):
+    if not osp.exists(image_path):
+        raise FileNotFoundError(f"Triplane not found: {image_path}")
+    with open(triplane_path, 'rb') as f:
+        triplane = np.load(f)
+        triplane = torch.as_tensor(triplane, dtype=torch.float32)
+    return triplane
+
+
 def contiguous(obj):
     if not obj.flags.c_contiguous:
         obj = obj.copy(order="C")

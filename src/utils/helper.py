@@ -77,6 +77,12 @@ def is_video(file_path):
         return True
     return False
 
+# Nyte's add.
+def is_triplane(file_path):
+    if file_path.lower().endswith((".npy")) or osp.isdir(file_path):
+        return True
+    return False
+
 
 def is_template(file_path):
     if file_path.endswith(".pkl"):

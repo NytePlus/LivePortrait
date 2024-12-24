@@ -47,10 +47,11 @@ class WarpingNetwork(nn.Module):
         return F.grid_sample(inp, deformation, align_corners=False)
 
     def forward(self, feature_3d, kp_driving, kp_source):
+        print(f'kp max: {kp_driving.max()} min: {kp_driving.min()}')
         if self.dense_motion_network is not None:
             # Feature warper, Transforming feature representation according to deformation and occlusion
             dense_motion = self.dense_motion_network(
-                feature=feature_3d, kp_driving=kp_driving, kp_source=kp_source
+                feature=feature_3d, kp_driving=kp_driving, kp_source=kp_source  # Bx32x16x64x64
             )
             if 'occlusion_map' in dense_motion:
                 occlusion_map = dense_motion['occlusion_map']  # Bx1x64x64
@@ -58,6 +59,7 @@ class WarpingNetwork(nn.Module):
                 occlusion_map = None
 
             deformation = dense_motion['deformation']  # Bx16x64x64x3
+            print(f'f_3d: {feature_3d.shape} >> deformation: {deformation.shape}')
             out = self.deform_input(feature_3d, deformation)  # Bx32x16x64x64
 
             bs, c, d, h, w = out.shape  # Bx32x16x64x64

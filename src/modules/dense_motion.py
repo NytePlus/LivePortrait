@@ -27,6 +27,7 @@ class DenseMotionNetwork(nn.Module):
             self.occlusion = None
 
     def create_sparse_motions(self, feature, kp_driving, kp_source):
+        # print(f'sparse feature: {feature.shape}')
         bs, _, d, h, w = feature.shape  # (bs, 4, 16, 64, 64)
         identity_grid = make_coordinate_grid((d, h, w), ref=kp_source)  # (16, 64, 64, 3)
         identity_grid = identity_grid.view(1, 1, d, h, w, 3)  # (1, 1, d=16, h=64, w=64, 3)
@@ -44,6 +45,7 @@ class DenseMotionNetwork(nn.Module):
 
     def create_deformed_feature(self, feature, sparse_motions):
         bs, _, d, h, w = feature.shape
+        # print(f'deformed_feature: {feature.shape}')
         feature_repeat = feature.unsqueeze(1).unsqueeze(1).repeat(1, self.num_kp+1, 1, 1, 1, 1, 1)      # (bs, num_kp+1, 1, c, d, h, w)
         feature_repeat = feature_repeat.view(bs * (self.num_kp+1), -1, d, h, w)                         # (bs*(num_kp+1), c, d, h, w)
         sparse_motions = sparse_motions.view((bs * (self.num_kp+1), d, h, w, -1))                       # (bs*(num_kp+1), d, h, w, 3)

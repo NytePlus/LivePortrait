@@ -47,12 +47,12 @@ class InferenceConfig(PrintableConfig):
     flag_do_rot: bool = True
     flag_force_cpu: bool = False
     flag_do_torch_compile: bool = False
-    driving_option: str = "pose-friendly" # "expression-friendly" or "pose-friendly"
+    driving_option: str = "expression-friendly" # "expression-friendly" or "pose-friendly"
     driving_multiplier: float = 1.0
     driving_smooth_observation_variance: float = 3e-7 # smooth strength scalar for the animated video when the input is a source video, the larger the number, the smoother the animated video; too much smoothness would result in loss of motion accuracy
     source_max_dim: int = 1280 # the max dim of height and width of source image or video
     source_division: int = 2 # make sure the height and width of source image or video can be divided by this number
-    animation_region: Literal["exp", "pose", "lip", "eyes", "all"] = "all" # the region where the animation was performed, "exp" means the expression, "pose" means the head pose
+    animation_region: Literal["exp", "pose", "lip", "eyes", "all"] = "exp" # the region where the animation was performed, "exp" means the expression, "pose" means the head pose
 
     # NOT EXPORTED PARAMS
     lip_normalize_threshold: float = 0.03 # threshold for flag_normalize_lip
